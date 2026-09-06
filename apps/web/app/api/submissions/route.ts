@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { submissionSchema } from "@/lib/validators";
 import { supabase, isSupabaseConfigured, localStore } from "@/lib/store";
 import { globalSubmissionLimiter } from "@/lib/rate-limiter";
+import { startLocalEvaluation } from "@/lib/local-runner";
 import { randomUUID } from "crypto";
 
 export async function POST(req: NextRequest) {
@@ -237,6 +238,9 @@ export async function POST(req: NextRequest) {
       created_at: now,
     };
     localStore.evaluationRuns.set(runId, runData);
+
+    // Asynchronously trigger local evaluation so the user experiences the real-time stage progression
+    startLocalEvaluation(runId);
 
     return NextResponse.json(
       {
