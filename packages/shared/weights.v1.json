@@ -1,0 +1,78 @@
+{
+  "$schema": "./schemas/weights_schema.json",
+  "version": "1.0.0",
+  "name": "Standard Production Software Evaluation Rubric",
+  "totalWeight": 100,
+  "categories": {
+    "problem_statement": {
+      "name": "Problem Statement",
+      "weight": 10,
+      "evaluator": "ProblemAnalyzer",
+      "measurementType": "qualitative_llm",
+      "description": "Clarity, real-world relevance, scope definition, and target audience alignment of the problem being solved."
+    },
+    "solution_quality": {
+      "name": "Solution Quality",
+      "weight": 15,
+      "evaluator": "SolutionAnalyzer",
+      "measurementType": "qualitative_llm",
+      "description": "Soundness of technical architecture, system design, domain modeling, and appropriateness of tech stack."
+    },
+    "code_quality": {
+      "name": "Code Quality",
+      "weight": 15,
+      "evaluator": "CodeQualityAnalyzer",
+      "measurementType": "deterministic_tools",
+      "description": "Deterministic syntax conformance, formatting consistency, AST complexity, and static analysis health."
+    },
+    "optimization": {
+      "name": "Optimization",
+      "weight": 10,
+      "evaluator": "OptimizationAnalyzer",
+      "measurementType": "hybrid_ast_llm",
+      "description": "Resource efficiency, memory management, bundle size awareness, and algorithmic complexity."
+    },
+    "ui_ux": {
+      "name": "UI/UX",
+      "weight": 10,
+      "evaluator": "UIAnalyzer",
+      "measurementType": "deterministic_playwright",
+      "description": "Visual polish, responsive viewports, design system consistency, keyboard accessibility, and state feedback."
+    },
+    "performance": {
+      "name": "Performance",
+      "weight": 10,
+      "evaluator": "PerformanceAnalyzer",
+      "measurementType": "deterministic_lighthouse",
+      "description": "Empirical Core Web Vitals, server response times (TTFB), Lighthouse performance audit, and asset size."
+    },
+    "security": {
+      "name": "Security",
+      "weight": 10,
+      "evaluator": "SecurityAnalyzer",
+      "measurementType": "deterministic_sast",
+      "description": "Static vulnerability scanning (SAST), dependency CVE audits, secret leakage detection, and sanitization."
+    },
+    "novelty": {
+      "name": "Innovation/Novelty",
+      "weight": 5,
+      "evaluator": "NoveltyAnalyzer",
+      "measurementType": "verified_web_research",
+      "description": "Originality of technical approach, differentiation from existing solutions, and verified market novelty."
+    },
+    "documentation": {
+      "name": "Documentation",
+      "weight": 5,
+      "evaluator": "DocumentationAnalyzer",
+      "measurementType": "hybrid_static_llm",
+      "description": "Completeness of README, architecture diagrams, local setup instructions, inline comments, and API specs."
+    },
+    "engineering_practices": {
+      "name": "Engineering Practices",
+      "weight": 10,
+      "evaluator": "EngineeringAnalyzer",
+      "measurementType": "deterministic_filesystem",
+      "description": "CI/CD pipeline presence, automated test coverage, environment configuration hygiene, and git commit quality."
+    }
+  }
+}

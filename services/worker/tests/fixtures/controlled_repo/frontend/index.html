@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow Tracker - Distributed Engineering Management</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background-color: #0F172A;
+      color: #F8FAFC;
+    }
+    header {
+      border-bottom: 1px solid #334155;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      color: #38BDF8;
+      margin: 0 0 8px 0;
+      font-size: 24px;
+    }
+    .card {
+      background: #1E293B;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      max-width: 600px;
+    }
+    button {
+      background: #0284C7;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover {
+      background: #0369A1;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      color: #94A3B8;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #475569;
+      background: #0F172A;
+      color: white;
+      box-sizing: border-box;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TaskFlow Tracker Dashboard</h1>
+    <p>Real-time distributed synchronization monitor for high-velocity teams.</p>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="form-heading">
+      <h2 id="form-heading" style="font-size: 18px; margin-top: 0;">Create New Engineering Task</h2>
+      <form id="task-form" action="/tasks" method="POST">
+        <label for="task-title">Task Title</label>
+        <input type="text" id="task-title" name="title" required placeholder="e.g. Implement schema migration">
+        
+        <label for="task-assignee">Assignee</label>
+        <input type="text" id="task-assignee" name="assignee" placeholder="e.g. dev@company.internal">
+        
+        <button type="submit" id="submit-btn">Dispatch Task</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <button id="sync-btn" onclick="syncTasks()">Sync Remote Journal</button>
+      <div id="status-display" style="margin-top: 12px; font-size: 13px; color: #22C55E;">All local changes synchronized.</div>
+    </section>
+  </main>
+
+  <script src="src/app.js"></script>
+</body>
+</html>
