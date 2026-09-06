@@ -192,10 +192,14 @@ export function EvaluationReportView({
         </div>
 
         <div className="grid grid-cols-1 gap-3">
-          {Object.entries(scoreBreakdown).map(([catKey, data]: [string, any]) => {
+        {Object.entries(scoreBreakdown).map(([catKey, data]: [string, any]) => {
             const IconComponent = CATEGORY_ICONS[catKey] || FileCode;
             const isExpanded = expandedCategory === catKey;
             const catEvidence = evidence.filter((e) => e.criterion_score_id?.includes(catKey) || e.source?.toLowerCase().includes(catKey));
+            // Defensive: normalize field access to prevent crashes from varying data shapes
+            const normalizedScore = data.normalized_score ?? data.score ?? 0;
+            const weight = data.weight ?? data.max_score ?? 10;
+            const categoryName = data.category_name || catKey.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
 
             return (
               <div
@@ -213,7 +217,7 @@ export function EvaluationReportView({
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-white flex items-center gap-2">
-                        <span>{data.category_name}</span>
+                        <span>{categoryName}</span>
                         {data.status === "unmeasurable" && (
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#334155] text-[#94A3B8]">
                             Unmeasurable
@@ -227,16 +231,16 @@ export function EvaluationReportView({
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <div className="text-sm font-bold text-white font-mono">
-                        {data.normalized_score.toFixed(1)} <span className="text-xs text-[#64748B]">/ {data.weight}</span>
+                        {normalizedScore.toFixed(1)} <span className="text-xs text-[#64748B]">/ {weight}</span>
                       </div>
                       <div className="w-24 bg-[#1E293B] h-1.5 rounded-full overflow-hidden mt-1">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${getProgressColor(
-                            data.normalized_score,
-                            data.weight
+                            normalizedScore,
+                            weight
                           )}`}
                           style={{
-                            width: `${Math.min(100, (data.normalized_score / Math.max(1, data.weight)) * 100)}%`,
+                            width: `${Math.min(100, (normalizedScore / Math.max(1, weight)) * 100)}%`,
                           }}
                         />
                       </div>

@@ -369,7 +369,7 @@ export function LiveProgress({ runId, repoUrl, onReset }: LiveProgressProps) {
   // Compute Overall Progress Percentage strictly from backend state
   const progressPercent = useMemo(() => {
     if (runStatus === "completed") return 100;
-    if (runStatus === "queued") return 5;
+    if (runStatus === "queued") return 0;
 
     let points = 0;
     for (const s of stages) {

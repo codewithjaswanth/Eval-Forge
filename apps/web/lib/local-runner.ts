@@ -200,6 +200,40 @@ export function startLocalEvaluation(runId: string) {
       const allScores = Array.from(localStore.criterionScores.values()).filter((s) => s.run_id === runId);
       const totalScore = Math.round(allScores.reduce((acc, s) => acc + s.score, 0) * 10) / 10;
 
+      // Build score_breakdown as an OBJECT keyed by criterion name
+      // (evaluation-report.tsx uses Object.entries(scoreBreakdown) and expects
+      //  each value to have normalized_score, weight, category_name, summary, etc.)
+      const scoreBreakdownObj: Record<string, any> = {};
+      const categoryTitles: Record<string, string> = {
+        code_quality: "Code Quality",
+        problem_statement: "Problem Statement",
+        solution_quality: "Solution Quality",
+        optimization: "Optimization",
+        ui_ux: "UI/UX",
+        performance: "Performance",
+        security: "Security",
+        novelty: "Novelty & Prior Art",
+        documentation: "Documentation",
+        engineering: "Engineering Practices",
+      };
+      for (const s of allScores) {
+        scoreBreakdownObj[s.criterion] = {
+          criterion: s.criterion,
+          category_name: categoryTitles[s.criterion] || s.criterion,
+          score: s.score,
+          max_score: s.max_score,
+          normalized_score: s.score,
+          weight: s.max_score,
+          weighted_score: s.score,
+          confidence: s.confidence || 0.92,
+          summary: s.summary,
+          strengths: s.strengths || [],
+          weaknesses: s.weaknesses || [],
+          recommendations: s.recommendations || [],
+          status: "measured",
+        };
+      }
+
       const reportData = {
         id: randomUUID(),
         run_id: runId,
@@ -208,27 +242,20 @@ export function startLocalEvaluation(runId: string) {
         overall_score: totalScore,
         confidence: 0.92,
         executive_summary: `EvalForge evaluated ${project?.name || "Project"} across 10 deterministic engineering criteria. Overall score: ${totalScore}/100. Strong architecture, clean test suites, and solid component design.`,
-        strengths: [
+        key_strengths: [
           "Robust multi-tier architecture with clear separation of concerns.",
           "Responsive mobile and desktop rendering with zero WCAG accessibility infractions.",
           "Solid engineering foundations with automated test discovery and CI workflow.",
         ],
-        weaknesses: [
+        key_weaknesses: [
           "Minor stylistic and lint warnings detected in legacy utility scripts.",
           "Could benefit from bundle size optimization and asset pre-caching.",
         ],
-        recommendations: [
+        action_plan: [
           "Integrate strict pre-commit git hooks to enforce formatting rules.",
           "Add automated Core Web Vitals threshold checks to CI pipeline.",
         ],
-        score_breakdown: allScores.map((s) => ({
-          criterion: s.criterion,
-          score: s.score,
-          max_score: s.max_score,
-          weight: s.weight,
-          weighted_score: s.score,
-          summary: s.summary,
-        })),
+        score_breakdown: scoreBreakdownObj,
         created_at: new Date().toISOString(),
       };
 
