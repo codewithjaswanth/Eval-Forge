@@ -119,8 +119,8 @@ export function LiveProgress({ runId, repoUrl, onReset }: LiveProgressProps) {
     }
 
     poll();
-    // Fast 1.5s responsive poll for real-time responsiveness
-    intervalId = setInterval(poll, 1500);
+    // Fast 1.0s responsive poll for real-time responsiveness
+    intervalId = setInterval(poll, 1000);
 
     return () => {
       isActive = false;
@@ -369,14 +369,14 @@ export function LiveProgress({ runId, repoUrl, onReset }: LiveProgressProps) {
   // Compute Overall Progress Percentage strictly from backend state
   const progressPercent = useMemo(() => {
     if (runStatus === "completed") return 100;
-    if (runStatus === "queued") return 3;
+    if (runStatus === "queued") return 5;
 
     let points = 0;
     for (const s of stages) {
       if (s.status === "completed" || s.status === "skipped") points += 1.0;
       else if (s.status === "running") points += 0.5;
     }
-    return Math.min(99, Math.max(5, Math.round((points / 10) * 100)));
+    return Math.min(99, Math.max(10, Math.round((points / 10) * 100)));
   }, [runStatus, stages]);
 
   // Elapsed time calculation
@@ -733,7 +733,11 @@ export function LiveProgress({ runId, repoUrl, onReset }: LiveProgressProps) {
                 <span>Evaluation Progress</span>
               </div>
               <h3 className="text-lg sm:text-xl font-semibold text-white tracking-tight">
-                {runStatus === "completed" ? "Evaluation Complete" : "Analyzing Your Project"}
+                {runStatus === "completed"
+                  ? "Evaluation Complete"
+                  : runStatus === "queued"
+                  ? "Queued for Worker Claim"
+                  : "Analyzing Your Project"}
               </h3>
             </div>
             <div className="text-right">

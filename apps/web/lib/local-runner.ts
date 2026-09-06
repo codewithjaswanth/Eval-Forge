@@ -18,12 +18,12 @@ export function startLocalEvaluation(runId: string) {
       const _repoUrl = project?.repo_url || "https://github.com/example/repo";
       const liveUrl = project?.live_url;
 
-      // 1. Worker Claims Job (1.2s delay in queued state)
+      // 1. Worker Claims Job and completes Ingestion within ~80ms
       run.worker_id = "worker-local-daemon";
       run.status = "running";
       run.started_at = new Date().toISOString();
 
-      // Ingestion: Extract discovered project metadata
+      // Ingestion: Extract discovered project metadata immediately
       if (submission) {
         submission.metadata = {
           total_files: 42,
@@ -114,30 +114,38 @@ export function startLocalEvaluation(runId: string) {
         }
       };
 
-      // Stage 1: Batch A (Code Quality & Problem Statement)
-      await new Promise((r) => setTimeout(r, 1600));
+      // Wave 1: FAST Modules (Code Quality, Problem Statement, Documentation, Engineering)
+      await new Promise((r) => setTimeout(r, 250));
       setModuleState("code_quality", "running");
       setModuleState("problem_statement", "running");
+      setModuleState("documentation", "running");
+      setModuleState("engineering", "running");
 
-      await new Promise((r) => setTimeout(r, 2200));
+      await new Promise((r) => setTimeout(r, 700));
       setModuleState("code_quality", "completed", 13.8);
       setModuleState("problem_statement", "completed", 9.0);
+      setModuleState("documentation", "completed", 4.8);
+      setModuleState("engineering", "completed", 9.0);
 
-      // Stage 2: Batch B (Solution Quality & Security)
+      // Wave 2: MEDIUM Modules (Solution Quality, Security, Optimization)
       setModuleState("solution_quality", "running");
       setModuleState("security", "running");
+      setModuleState("optimization", "running");
 
-      await new Promise((r) => setTimeout(r, 2400));
+      await new Promise((r) => setTimeout(r, 800));
       setModuleState("solution_quality", "completed", 13.5);
       setModuleState("security", "completed", 9.5);
+      setModuleState("optimization", "completed", 8.5);
 
-      // Stage 3: Batch C (UI/UX & Performance via Playwright)
+      // Wave 3: SLOW Modules (UI/UX, Performance, Novelty Research)
       setModuleState("ui_ux", "running");
       setModuleState("performance", "running");
+      setModuleState("novelty", "running");
 
-      await new Promise((r) => setTimeout(r, 2500));
+      await new Promise((r) => setTimeout(r, 900));
       setModuleState("ui_ux", "completed", liveUrl ? 13.5 : 9.0);
       setModuleState("performance", "completed", liveUrl ? 13.0 : 8.5);
+      setModuleState("novelty", "completed", 4.2);
 
       // Record UI/UX and Performance evidence
       const currentEvidence = localStore.evidence.get(runId) || [];
@@ -173,38 +181,20 @@ export function startLocalEvaluation(runId: string) {
           metric: "load_duration_ms",
           value: 480,
           interpretation: "Page fully rendered in 480ms.",
+        },
+        {
+          id: randomUUID(),
+          run_id: runId,
+          source: "novelty_search",
+          metric: "prior_art_sources",
+          value: 3,
+          interpretation: "Identified 3 comparable open-source implementations; differentiation detected in offline-first indexing.",
         }
       );
       localStore.evidence.set(runId, currentEvidence);
 
-      // Stage 4: Batch D (Optimization & Novelty Research)
-      setModuleState("optimization", "running");
-      setModuleState("novelty", "running");
-
-      await new Promise((r) => setTimeout(r, 2400));
-      setModuleState("optimization", "completed", 8.5);
-      setModuleState("novelty", "completed", 4.2);
-
-      // Add research citations evidence
-      currentEvidence.push({
-        id: randomUUID(),
-        run_id: runId,
-        source: "novelty_search",
-        metric: "prior_art_sources",
-        value: 3,
-        interpretation: "Identified 3 comparable open-source implementations; differentiation detected in offline-first indexing.",
-      });
-
-      // Stage 5: Batch E (Documentation & Engineering)
-      setModuleState("documentation", "running");
-      setModuleState("engineering", "running");
-
-      await new Promise((r) => setTimeout(r, 2000));
-      setModuleState("documentation", "completed", 4.8);
-      setModuleState("engineering", "completed", 9.0);
-
-      // Final Scoring & Synthesis
-      await new Promise((r) => setTimeout(r, 1200));
+      // Final Scoring & Synthesis (300ms)
+      await new Promise((r) => setTimeout(r, 350));
 
       // Calculate total score
       const allScores = Array.from(localStore.criterionScores.values()).filter((s) => s.run_id === runId);

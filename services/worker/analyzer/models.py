@@ -36,8 +36,9 @@ class ProjectArtifact:
     config_files: List[str] = field(default_factory=list)
     file_tree: List[str] = field(default_factory=list)
 
-    # Additional contextual metadata
+    # Additional contextual metadata & shared cached context
     metadata: Dict[str, Any] = field(default_factory=dict)
+    shared_context: Optional[Any] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert artifact metadata to JSON-serializable dictionary for DB storage."""

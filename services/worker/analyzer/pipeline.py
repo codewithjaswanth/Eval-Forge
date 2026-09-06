@@ -64,27 +64,65 @@ class PipelineOrchestrator:
         artifact: ProjectArtifact
     ) -> Dict[str, EvaluationResult]:
         """
-        Executes all evaluators in the DAG according to dependency availability.
-        Independent evaluators run concurrently.
+        Executes all evaluators concurrently using an event-driven dependency DAG.
+        Nodes launch the instant all their prerequisites finish without wave-level blocking.
+        Every completion is immediately persisted to Supabase/localStore.
         """
         completed: Dict[str, EvaluationResult] = {}
         failed_evaluators: Set[str] = set()
         skipped_evaluators: Set[str] = set()
+        events: Dict[str, asyncio.Event] = {name: asyncio.Event() for name in self.evaluators}
 
-        # Initialize all modules as 'pending' in database
+        # 1. Batch initialize all modules as 'pending' in database in ONE operation
         if self.db:
-            for name, ev in self.evaluators.items():
-                self.db.upsert_module_status(
-                    run_id=run_id,
-                    module_name=name,
-                    status="pending",
-                    max_score=ev.max_score
-                )
-
-        remaining_evaluators = set(self.evaluators.keys())
+            if hasattr(self.db, "batch_upsert_modules"):
+                module_defs = [
+                    {"module_name": name, "status": "pending", "max_score": ev.max_score}
+                    for name, ev in self.evaluators.items()
+                ]
+                self.db.batch_upsert_modules(run_id, module_defs)
+            else:
+                for name, ev in self.evaluators.items():
+                    self.db.upsert_module_status(
+                        run_id=run_id,
+                        module_name=name,
+                        status="pending",
+                        max_score=ev.max_score
+                    )
 
         async def run_single_evaluator(name: str):
             ev = self.evaluators[name]
+
+            # Wait for all prerequisite dependencies to complete
+            for dep in ev.dependencies:
+                await events[dep].wait()
+                if dep in failed_evaluators or dep in skipped_evaluators:
+                    # Prerequisite failed: mark this node as skipped immediately
+                    logger.warning(f"[{name}] Skipped because dependency '{dep}' did not succeed.")
+                    skipped_evaluators.add(name)
+                    skip_result = EvaluationResult(
+                        criterion=ev.criterion,
+                        score=0.0,
+                        maxScore=ev.max_score,
+                        confidence=0.0,
+                        summary=f"Skipped because dependency evaluation failed: Prerequisite '{dep}' did not succeed.",
+                        weaknesses=["Prerequisite module did not complete successfully."]
+                    )
+                    completed[name] = skip_result
+                    if self.db:
+                        self.db.upsert_module_status(
+                            run_id=run_id,
+                            module_name=name,
+                            status="skipped",
+                            score=0.0,
+                            max_score=ev.max_score,
+                            confidence=0.0,
+                            error_information={"reason": f"Prerequisite '{dep}' failure"}
+                        )
+                    events[name].set()
+                    return
+
+            # All dependencies satisfied: mark node running immediately
             started_at = datetime.now(timezone.utc).isoformat()
             if self.db:
                 self.db.upsert_module_status(
@@ -100,10 +138,12 @@ class PipelineOrchestrator:
             result = await ev.run_safe(artifact=artifact, context=completed)
             duration_ms = (time.monotonic() - t0) * 1000.0
             completed_at = datetime.now(timezone.utc).isoformat()
-
-            # Record completion or failure
             is_success = not result.is_error
-            
+
+            completed[name] = result
+            if not is_success:
+                failed_evaluators.add(name)
+
             # Emit structured telemetry
             structured_logger.log_evaluation_event(
                 evaluation_run_id=run_id,
@@ -115,6 +155,7 @@ class PipelineOrchestrator:
                 message=result.summary if is_success else result.error_message
             )
 
+            # Persist completion or failure immediately so the UI reflects live progress
             if self.db:
                 status_str = "completed" if is_success else "failed"
                 mod_id = self.db.upsert_module_status(
@@ -142,75 +183,12 @@ class PipelineOrchestrator:
                         evidence_list=result.evidence
                     )
 
-            return name, result, is_success
+            # Signal downstream dependents that this node has completed
+            events[name].set()
 
-        while remaining_evaluators:
-            # 1. Identify evaluators ready to execute (all dependencies completed successfully)
-            ready_to_run = []
-            to_skip = []
-
-            for name in list(remaining_evaluators):
-                deps = set(self.evaluators[name].dependencies)
-                # Check if any dependency has failed or was skipped
-                if any(dep in failed_evaluators or dep in skipped_evaluators for dep in deps):
-                    to_skip.append(name)
-                # Check if all dependencies are satisfied
-                elif deps.issubset(set(completed.keys())):
-                    ready_to_run.append(name)
-
-            # 2. Process skipped evaluators (cascade from dependency failures)
-            for name in to_skip:
-                ev = self.evaluators[name]
-                logger.warning(f"[{name}] Skipped due to failed/missing prerequisite dependency.")
-                skipped_evaluators.add(name)
-                remaining_evaluators.remove(name)
-                
-                skip_result = EvaluationResult(
-                    criterion=ev.criterion,
-                    score=0.0,
-                    maxScore=ev.max_score,
-                    confidence=0.0,
-                    summary=f"Skipped because dependency evaluation failed.",
-                    weaknesses=["Prerequisite module did not complete successfully."]
-                )
-                completed[name] = skip_result
-
-                if self.db:
-                    self.db.upsert_module_status(
-                        run_id=run_id,
-                        module_name=name,
-                        status="skipped",
-                        score=0.0,
-                        max_score=ev.max_score,
-                        confidence=0.0,
-                        error_information={"reason": "Dependency failure"}
-                    )
-
-            if not ready_to_run and remaining_evaluators:
-                # Deadlock detection if any unaccounted nodes remain
-                raise PipelineDependencyError(
-                    f"Deadlock in evaluator pipeline. Remaining unsatisfied: {remaining_evaluators}"
-                )
-
-            if not ready_to_run:
-                break
-
-            # 3. Execute all ready evaluators CONCURRENTLY
-            logger.info(f"Executing concurrent evaluator wave: {ready_to_run}")
-            tasks = [run_single_evaluator(name) for name in ready_to_run]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for item in results:
-                if isinstance(item, Exception):
-                    logger.error(f"Unhandled pipeline task exception: {item}")
-                    continue
-
-                name, result, is_success = item
-                remaining_evaluators.remove(name)
-                completed[name] = result
-
-                if not is_success:
-                    failed_evaluators.add(name)
+        # Launch all 10 evaluators as non-blocking concurrent asyncio tasks
+        tasks = [asyncio.create_task(run_single_evaluator(name)) for name in self.evaluators]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.info(f"Pipeline finished for run {run_id}. Total evaluated modules: {len(completed)}")
         return completed

@@ -87,8 +87,14 @@ class UIAnalyzer(BaseEvaluator):
                 evidence=evidence
             )
 
-        # Case 2: Live URL provided -> Execute Playwright Browser Audit
-        session: BrowserSessionResult = await self.playwright_runner.run_browser_audit(artifact.live_url)
+        # Case 2: Live URL provided -> Execute or reuse Playwright Browser Audit
+        shared_ctx = getattr(artifact, "shared_context", None)
+        if shared_ctx and shared_ctx.browser_session is not None:
+            session = shared_ctx.browser_session
+        else:
+            session = await self.playwright_runner.run_browser_audit(artifact.live_url)
+            if shared_ctx:
+                shared_ctx.browser_session = session
 
         if not session.reachable:
             return EvaluationResult(

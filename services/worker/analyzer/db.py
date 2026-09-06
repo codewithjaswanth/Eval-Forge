@@ -14,6 +14,7 @@ class EvaluationDatabase:
     """
     def __init__(self, use_mock: bool = False):
         self.use_mock = use_mock or not os.getenv("SUPABASE_URL")
+        self._supabase_client = None
         self.mock_runs: Dict[str, Dict[str, Any]] = {}
         self.mock_submissions: Dict[str, Dict[str, Any]] = {}
         self.mock_projects: Dict[str, Dict[str, Any]] = {}
@@ -21,6 +22,28 @@ class EvaluationDatabase:
         self.mock_scores: Dict[str, Dict[str, Any]] = {}
         self.mock_evidence: List[Dict[str, Any]] = []
         self.mock_reports: Dict[str, Dict[str, Any]] = {}
+
+        if not self.use_mock:
+            self._init_supabase_client()
+
+    def _init_supabase_client(self):
+        """Initialize persistent Supabase connection with session pooling."""
+        try:
+            from supabase import create_client
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            if url and key:
+                self._supabase_client = create_client(url, key)
+                logger.info("Initialized persistent Supabase client connection.")
+        except Exception as e:
+            logger.warning(f"Failed to pre-initialize Supabase client: {e}")
+
+    def _get_client(self):
+        """Return cached Supabase client or initialize on-demand."""
+        if self._supabase_client is not None:
+            return self._supabase_client
+        self._init_supabase_client()
+        return self._supabase_client
 
     def claim_next_run(self, worker_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -37,12 +60,11 @@ class EvaluationDatabase:
                     return run
             return None
 
-        # Real Supabase/PostgreSQL client execution
+        # Real Supabase/PostgreSQL client execution using persistent client
         try:
-            from supabase import create_client
-            url = os.getenv("SUPABASE_URL")
-            key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-            client = create_client(url, key)
+            client = self._get_client()
+            if not client:
+                return None
             
             # Execute stored procedure claim_next_evaluation_run
             res = client.rpc("claim_next_evaluation_run", {"p_worker_id": worker_id}).execute()
@@ -55,6 +77,51 @@ class EvaluationDatabase:
             logger.error(f"Error querying queue from Supabase: {e}")
             return None
 
+    def batch_upsert_modules(self, run_id: str, module_defs: List[Dict[str, Any]]):
+        """Batch insert/upsert all module status definitions in one single database call."""
+        now_str = datetime.now(timezone.utc).isoformat()
+        if self.use_mock:
+            for m in module_defs:
+                mod_name = m["module_name"]
+                mod_id = f"mod_{run_id}_{mod_name}"
+                self.mock_modules[mod_id] = {
+                    "id": mod_id,
+                    "run_id": run_id,
+                    "module_name": mod_name,
+                    "status": m.get("status", "pending"),
+                    "max_score": m.get("max_score", 10.0),
+                    "score": m.get("score"),
+                    "confidence": m.get("confidence"),
+                    "error_information": m.get("error_information"),
+                    "started_at": m.get("started_at"),
+                    "completed_at": m.get("completed_at"),
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                }
+            return
+
+        try:
+            client = self._get_client()
+            if not client:
+                return
+            rows = []
+            for m in module_defs:
+                rows.append({
+                    "run_id": run_id,
+                    "module_name": m["module_name"],
+                    "status": m.get("status", "pending"),
+                    "max_score": m.get("max_score", 10.0),
+                    "score": m.get("score"),
+                    "confidence": m.get("confidence"),
+                    "error_information": m.get("error_information"),
+                    "started_at": m.get("started_at"),
+                    "completed_at": m.get("completed_at"),
+                    "updated_at": now_str,
+                })
+            client.table("evaluation_modules").upsert(rows, on_conflict="run_id,module_name").execute()
+        except Exception as e:
+            logger.error(f"Error batch upserting modules for run {run_id}: {e}")
+
     def get_submission_and_project(self, submission_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Fetch submission record and associated project."""
         if self.use_mock:
@@ -63,8 +130,9 @@ class EvaluationDatabase:
             return (sub, proj)
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return (None, None)
             sub_res = client.table("submissions").select("*").eq("id", submission_id).single().execute()
             sub = sub_res.data
             if sub:
@@ -88,8 +156,9 @@ class EvaluationDatabase:
             return
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return
             client.table("submissions").update({
                 "metadata": artifact_dict,
                 "status": "processed",
@@ -109,8 +178,9 @@ class EvaluationDatabase:
             return
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return
             client.table("evaluation_runs").update({
                 "status": "completed",
                 "overall_score": overall_score,
@@ -130,8 +200,9 @@ class EvaluationDatabase:
             return
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return
             client.table("evaluation_runs").update({
                 "status": "failed",
                 "error_information": {"error": error_message},
@@ -179,8 +250,9 @@ class EvaluationDatabase:
             return module_id
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return None
             res = client.table("evaluation_modules").upsert(
                 data,
                 on_conflict="run_id,module_name"
@@ -228,8 +300,9 @@ class EvaluationDatabase:
             return score_id
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return None
             res = client.table("criterion_scores").upsert(
                 data,
                 on_conflict="run_id,category_key"
@@ -272,8 +345,9 @@ class EvaluationDatabase:
             return
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return
             client.table("evidence").insert(formatted).execute()
         except Exception as e:
             logger.error(f"Error persisting evidence for run {run_id}: {e}")
@@ -305,8 +379,9 @@ class EvaluationDatabase:
             return
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return
             client.table("reports").upsert(data, on_conflict="run_id").execute()
             logger.info(f"Persisted report to Supabase for run {run_id}")
         except Exception as e:
@@ -345,8 +420,9 @@ class EvaluationDatabase:
             return recovered_count
 
         try:
-            from supabase import create_client
-            client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+            client = self._get_client()
+            if not client:
+                return 0
             res = client.table("evaluation_runs").select("*").eq("status", "running").execute()
             for run in (res.data or []):
                 started_str = run.get("started_at") or run.get("created_at")

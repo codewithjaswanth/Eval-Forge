@@ -12,6 +12,10 @@ from .ingestion.git_client import GitClient, GitIngestionError
 from .ingestion.detector import ProjectDetector
 from .models import ProjectArtifact
 from .observability import structured_logger
+from .pipeline import PipelineOrchestrator
+from .evaluators import get_standard_evaluators
+from .rubrics.aggregator import ScoreAggregator
+import asyncio
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,7 +25,7 @@ logger = logging.getLogger("evalforge.worker")
 
 class EvaluationWorker:
     """
-    Asynchronous evaluation worker that polls Supabase for queued runs,
+    High-performance asynchronous evaluation worker that polls Supabase for queued runs,
     atomically claims jobs, creates disposable sandboxes, and ingests repositories.
     """
     def __init__(self, db: Optional[EvaluationDatabase] = None, worker_id: Optional[str] = None):
@@ -29,14 +33,19 @@ class EvaluationWorker:
         self.db = db or EvaluationDatabase()
         self.git_client = GitClient(timeout_seconds=60)
         self.detector = ProjectDetector()
+        self.aggregator = ScoreAggregator()
+        self.last_stale_recovery: float = 0.0
 
     def process_one_job(self) -> bool:
         """
         Polls and executes one queued evaluation job.
         Returns True if a job was found and processed, False if queue was empty.
         """
-        # Periodic check to recover stalled runs from crashed worker processes
-        self.db.recover_stale_jobs(stale_threshold_seconds=900)
+        # Periodic check to recover stalled runs from crashed worker processes (runs every 60s, not in hot polling path)
+        now_t = time.time()
+        if now_t - self.last_stale_recovery > 60.0:
+            self.last_stale_recovery = now_t
+            self.db.recover_stale_jobs(stale_threshold_seconds=900)
 
         run = self.db.claim_next_run(self.worker_id)
         if not run:
@@ -95,11 +104,6 @@ class EvaluationWorker:
                 )
 
                 # 5. Execute concurrent evaluator pipeline
-                from .pipeline import PipelineOrchestrator
-                from .evaluators import get_standard_evaluators
-                from .rubrics.aggregator import ScoreAggregator
-                import asyncio
-
                 orchestrator = PipelineOrchestrator(
                     evaluators=get_standard_evaluators(),
                     db=self.db,
@@ -108,8 +112,7 @@ class EvaluationWorker:
                 results = asyncio.run(orchestrator.execute_pipeline(run_id=run_id, artifact=artifact))
 
                 # Deterministically aggregate scores and generate report
-                aggregator = ScoreAggregator()
-                report = aggregator.aggregate(results, project_name=project.get("name", "Project"))
+                report = self.aggregator.aggregate(results, project_name=project.get("name", "Project"))
 
                 # Persist the final report snapshot
                 self.db.record_report(
@@ -155,18 +158,34 @@ class EvaluationWorker:
 
         return True
 
-    def start_polling(self, poll_interval: float = 2.0, max_iterations: Optional[int] = None):
-        """Continuously poll queue for jobs until interrupted or max_iterations reached."""
-        logger.info(f"EvalForge Worker [{self.worker_id}] online and polling queue every {poll_interval}s...")
+    def start_polling(
+        self,
+        poll_interval: float = 0.4,
+        max_poll_interval: float = 1.5,
+        max_iterations: Optional[int] = None
+    ):
+        """
+        Continuously poll queue for jobs using fast adaptive intervals.
+        Immediately claims new jobs within < 400ms when active, backing off gracefully when idle.
+        """
+        logger.info(f"EvalForge Worker [{self.worker_id}] online and polling queue (active: {poll_interval}s, idle: {max_poll_interval}s)...")
         iterations = 0
+        current_interval = poll_interval
+        consecutive_empty = 0
         try:
             while True:
                 processed = self.process_one_job()
                 iterations += 1
                 if max_iterations and iterations >= max_iterations:
                     break
-                if not processed:
-                    time.sleep(poll_interval)
+                if processed:
+                    current_interval = poll_interval
+                    consecutive_empty = 0
+                else:
+                    consecutive_empty += 1
+                    if consecutive_empty > 3:
+                        current_interval = min(max_poll_interval, current_interval * 1.3)
+                    time.sleep(current_interval)
         except KeyboardInterrupt:
             logger.info(f"Worker [{self.worker_id}] shutting down gracefully.")
 
@@ -174,7 +193,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="EvalForge Evaluation Worker")
     parser.add_argument("--once", action="store_true", help="Process at most one job and exit")
-    parser.add_argument("--poll-interval", type=float, default=2.0, help="Poll interval in seconds")
+    parser.add_argument("--poll-interval", type=float, default=0.4, help="Fast poll interval in seconds (default: 0.4s)")
     args = parser.parse_args()
 
     worker = EvaluationWorker()

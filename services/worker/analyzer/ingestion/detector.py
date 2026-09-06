@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from ..models import ProjectArtifact
+from ..project_context import ProjectContext
 
 logger = logging.getLogger("evalforge.detector")
 
@@ -45,7 +46,9 @@ class ProjectDetector:
     IGNORE_DIRS = {
         ".git", "node_modules", ".next", "dist", "build", "out",
         "venv", ".venv", "env", "__pycache__", ".pytest_cache",
-        "target", "vendor", "bin", "obj"
+        "target", "vendor", "bin", "obj", "coverage", ".nyc_output",
+        ".turbo", ".cache", "tmp", "temp", ".idea", ".vscode",
+        ".tox", ".yarn", ".pnpm-store"
     }
 
     MAX_FILES_SCANNED = 5000
@@ -323,3 +326,5 @@ class ProjectDetector:
                 "is_truncated": is_truncated
             }
         )
+        artifact.shared_context = ProjectContext.build_from_artifact(artifact)
+        return artifact

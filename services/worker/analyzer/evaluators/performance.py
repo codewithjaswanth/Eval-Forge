@@ -55,8 +55,14 @@ class PerformanceAnalyzer(BaseEvaluator):
                 ]
             )
 
-        # Case 2: Live URL supplied -> Execute Playwright & Lighthouse
-        session: BrowserSessionResult = await self.playwright_runner.run_browser_audit(artifact.live_url)
+        # Case 2: Live URL supplied -> Reuse or execute Playwright & Lighthouse
+        shared_ctx = getattr(artifact, "shared_context", None)
+        if shared_ctx and shared_ctx.browser_session is not None:
+            session = shared_ctx.browser_session
+        else:
+            session = await self.playwright_runner.run_browser_audit(artifact.live_url)
+            if shared_ctx:
+                shared_ctx.browser_session = session
 
         if not session.reachable:
             return EvaluationResult(
