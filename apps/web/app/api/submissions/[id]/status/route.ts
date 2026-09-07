@@ -8,35 +8,33 @@ export async function GET(
   const { id } = await params;
 
   if (isSupabaseConfigured && supabase) {
-    const { data: run, error } = await supabase
-      .from("evaluation_runs")
-      .select("*, submissions(*, projects(*))")
-      .eq("id", id)
-      .maybeSingle();
+    try {
+      const { data: run, error } = await supabase
+        .from("evaluation_runs")
+        .select("*, submissions(*, projects(*))")
+        .eq("id", id)
+        .maybeSingle();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!error && run) {
+        // Load related evaluation data
+        const [modulesRes, scoresRes, evidenceRes, reportRes] = await Promise.all([
+          supabase.from("evaluation_modules").select("*").eq("run_id", id),
+          supabase.from("criterion_scores").select("*").eq("run_id", id),
+          supabase.from("evidence").select("*").eq("run_id", id),
+          supabase.from("reports").select("*").eq("run_id", id).maybeSingle(),
+        ]);
+
+        return NextResponse.json({
+          run,
+          modules: modulesRes.data || [],
+          criterionScores: scoresRes.data || [],
+          evidence: evidenceRes.data || [],
+          report: reportRes.data || null,
+        });
+      }
+    } catch (err) {
+      console.warn("[Status] Supabase fetch failed, checking localStore:", err);
     }
-
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
-
-    // Load related evaluation data
-    const [modulesRes, scoresRes, evidenceRes, reportRes] = await Promise.all([
-      supabase.from("evaluation_modules").select("*").eq("run_id", id),
-      supabase.from("criterion_scores").select("*").eq("run_id", id),
-      supabase.from("evidence").select("*").eq("run_id", id),
-      supabase.from("reports").select("*").eq("run_id", id).maybeSingle(),
-    ]);
-
-    return NextResponse.json({
-      run,
-      modules: modulesRes.data || [],
-      criterionScores: scoresRes.data || [],
-      evidence: evidenceRes.data || [],
-      report: reportRes.data || null,
-    });
   }
 
   // Local fallback

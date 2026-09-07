@@ -45,40 +45,51 @@ class CodeQualityAnalyzer(BaseEvaluator):
         # ----------------------------------------------------------------------
         # 1. Static Analysis & Linting / Formatting
         # ----------------------------------------------------------------------
-        lint_res = analyze_linting_and_formatting(
+        lint_res = await analyze_linting_and_formatting(
             root_path=artifact.root_path,
             file_tree=artifact.file_tree,
             detected_languages=artifact.detected_languages,
-            config_files=artifact.config_files
+            config_files=artifact.config_files,
+            timeout_seconds=min(30.0, self.timeout_seconds)
         )
 
         lint_pts = 0.0
         if lint_res.measurable:
-            measurable_dimensions += 1
+            measurable_dimensions += (1.0 if lint_res.tool_real else 0.6)
             base = 3.5 if lint_res.linter_config_present else 2.0
             if lint_res.formatter_config_present:
                 base += 0.5
             penalties = (lint_res.errors_count * 1.0) + (lint_res.warnings_count * 0.1) + (lint_res.formatting_violations_count * 0.2)
             lint_pts = max(0.0, min(4.0, base - penalties))
 
-            if lint_res.linter_config_present:
+            if lint_res.tool_real:
+                strengths.append(f"Real static analysis active ({lint_res.linter_name}).")
+            elif lint_res.linter_config_present:
                 strengths.append(f"Static linter configured: {lint_res.linter_name}")
             else:
                 weaknesses.append("Missing explicit linter configuration file (e.g. ESLint / Ruff).")
                 recommendations.append("Adopt an automated linter configuration to enforce consistent code standards.")
 
+            if not lint_res.tool_real and lint_res.linter_config_present:
+                weaknesses.append(f"Real linter binary unavailable ({lint_res.linter_name}); fell back to heuristic static analysis.")
+
             if lint_res.errors_count > 0:
                 weaknesses.append(f"Detected {lint_res.errors_count} syntax/linter error(s).")
                 recommendations.append("Resolve syntax and static analysis errors.")
-            elif lint_res.linter_config_present:
+            elif lint_res.linter_config_present and lint_res.tool_real:
                 strengths.append("Zero syntax or parsing errors detected across scanned files.")
 
+            lint_interpretation = (
+                f"Real static analysis ({lint_res.tool_used}): Found {lint_res.errors_count} syntax/lint error(s)."
+                if lint_res.tool_real
+                else f"Heuristic static analysis ({lint_res.tool_used} fallback): Found {lint_res.errors_count} syntax/lint error(s). Real linter unavailable."
+            )
             evidence.append(EvidenceItem(
                 source="linter_analysis",
                 metric="lint_errors",
                 value=lint_res.errors_count,
-                interpretation=f"Found {lint_res.errors_count} syntax/lint error(s).",
-                raw_data={"issues": lint_res.issues[:10]}
+                interpretation=lint_interpretation,
+                raw_data={"issues": lint_res.issues[:10], "tool_used": lint_res.tool_used, "tool_real": lint_res.tool_real}
             ))
             evidence.append(EvidenceItem(
                 source="linter_analysis",
@@ -90,7 +101,11 @@ class CodeQualityAnalyzer(BaseEvaluator):
                 source="formatter_analysis",
                 metric="formatting_violations",
                 value=lint_res.formatting_violations_count,
-                interpretation="Formatter configuration present." if lint_res.formatter_config_present else "No explicit formatter configuration found."
+                interpretation=(
+                    f"Real formatting check: {lint_res.formatting_violations_count} formatting violation(s) detected."
+                    if lint_res.tool_real and lint_res.formatter_config_present
+                    else ("Formatter configuration present." if lint_res.formatter_config_present else "No explicit formatter configuration found.")
+                )
             ))
         else:
             evidence.append(EvidenceItem(

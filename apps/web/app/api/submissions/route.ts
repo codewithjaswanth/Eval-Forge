@@ -51,124 +51,122 @@ export async function POST(req: NextRequest) {
 
     // 1. If Supabase is configured, use real database
     if (isSupabaseConfigured && supabase) {
-      // Check if project exists or insert
-      let projectId: string;
-      const { data: existingProject } = await supabase
-        .from("projects")
-        .select("id")
-        .eq("repo_url", repoUrl)
-        .maybeSingle();
+      try {
+        // Check if project exists or insert
+        let projectId: string;
+        const { data: existingProject } = await supabase
+          .from("projects")
+          .select("id")
+          .eq("repo_url", repoUrl)
+          .maybeSingle();
 
-      if (existingProject) {
-        projectId = existingProject.id;
+        if (existingProject) {
+          projectId = existingProject.id;
 
-        // Deduplication: Check if an active queued or running run already exists for this project
-        const { data: activeRuns } = await supabase
-          .from("evaluation_runs")
-          .select("id, status, created_at, submission_id, submissions!inner(project_id)")
-          .eq("submissions.project_id", projectId)
-          .in("status", ["queued", "running"])
-          .order("created_at", { ascending: false })
-          .limit(1);
+          // Deduplication: Check if an active queued or running run already exists for this project
+          const { data: activeRuns } = await supabase
+            .from("evaluation_runs")
+            .select("id, status, created_at, submission_id, submissions!inner(project_id)")
+            .eq("submissions.project_id", projectId)
+            .in("status", ["queued", "running"])
+            .order("created_at", { ascending: false })
+            .limit(1);
 
-        if (activeRuns && activeRuns.length > 0) {
-          const activeRun = activeRuns[0];
-          return NextResponse.json(
-            {
-              success: true,
-              projectId,
-              submissionId: activeRun.submission_id,
-              runId: activeRun.id,
-              status: activeRun.status,
-              repoUrl,
-              createdAt: activeRun.created_at,
-              deduplicated: true,
-              message: "Reattached to existing active evaluation run.",
-            },
-            { status: 200 }
-          );
-        }
+          if (activeRuns && activeRuns.length > 0) {
+            const activeRun = activeRuns[0];
+            return NextResponse.json(
+              {
+                success: true,
+                projectId,
+                submissionId: activeRun.submission_id,
+                runId: activeRun.id,
+                status: activeRun.status,
+                repoUrl,
+                createdAt: activeRun.created_at,
+                deduplicated: true,
+                message: "Reattached to existing active evaluation run.",
+              },
+              { status: 200 }
+            );
+          }
 
-        // Optionally update live_url or description if provided
-        if (liveUrl || description) {
-          await supabase
+          // Optionally update live_url or description if provided
+          if (liveUrl || description) {
+            await supabase
+              .from("projects")
+              .update({
+                live_url: liveUrl || null,
+                description: description || null,
+              })
+              .eq("id", projectId);
+          }
+        } else {
+          const { data: newProject, error: projErr } = await supabase
             .from("projects")
-            .update({
+            .insert({
+              name: projectName,
+              repo_url: repoUrl,
               live_url: liveUrl || null,
               description: description || null,
+              is_public: true,
             })
-            .eq("id", projectId);
+            .select("id")
+            .single();
+
+          if (projErr || !newProject) {
+            throw new Error(`Failed to create project record: ${projErr?.message || "Unknown error"}`);
+          }
+          projectId = newProject.id;
         }
-      } else {
-        const { data: newProject, error: projErr } = await supabase
-          .from("projects")
+
+        // Create submission
+        const { data: submission, error: subErr } = await supabase
+          .from("submissions")
           .insert({
-            name: projectName,
-            repo_url: repoUrl,
-            live_url: liveUrl || null,
-            description: description || null,
-            is_public: true,
+            project_id: projectId,
+            branch: "main",
+            status: "pending",
           })
           .select("id")
           .single();
 
-        if (projErr || !newProject) {
-          return NextResponse.json(
-            { error: "Failed to create project record", details: projErr?.message },
-            { status: 500 }
-          );
+        if (subErr || !submission) {
+          throw new Error(`Failed to create submission: ${subErr?.message || "Unknown error"}`);
         }
-        projectId = newProject.id;
-      }
 
-      // Create submission
-      const { data: submission, error: subErr } = await supabase
-        .from("submissions")
-        .insert({
-          project_id: projectId,
-          branch: "main",
-          status: "pending",
-        })
-        .select("id")
-        .single();
+        // Create evaluation_run with queued status
+        const { data: run, error: runErr } = await supabase
+          .from("evaluation_runs")
+          .insert({
+            submission_id: submission.id,
+            rubric_version: "1.0.0",
+            status: "queued",
+          })
+          .select("id, status, created_at")
+          .single();
 
-      if (subErr || !submission) {
+        if (runErr || !run) {
+          throw new Error(`Failed to enqueue evaluation run: ${runErr?.message || "Unknown error"}`);
+        }
+
         return NextResponse.json(
-          { error: "Failed to create submission", details: subErr?.message },
-          { status: 500 }
+          {
+            success: true,
+            projectId,
+            submissionId: submission.id,
+            runId: run.id,
+            status: run.status,
+            repoUrl,
+            createdAt: run.created_at,
+          },
+          { status: 201 }
+        );
+      } catch (dbError: any) {
+        console.warn(
+          "[Submissions] Supabase operation failed, falling back to local memory store:",
+          dbError?.message || dbError
         );
       }
-
-      // Create evaluation_run with queued status
-      const { data: run, error: runErr } = await supabase
-        .from("evaluation_runs")
-        .insert({
-          submission_id: submission.id,
-          rubric_version: "1.0.0",
-          status: "queued",
-        })
-        .select("id, status, created_at")
-        .single();
-
-      if (runErr || !run) {
-        return NextResponse.json(
-          { error: "Failed to enqueue evaluation run", details: runErr?.message },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          success: true,
-          projectId,
-          submissionId: submission.id,
-          runId: run.id,
-          status: run.status,
-          repoUrl,
-          createdAt: run.created_at,
-        },
-        { status: 201 }
-      );
     }
 
     // 2. Local fallback memory store
