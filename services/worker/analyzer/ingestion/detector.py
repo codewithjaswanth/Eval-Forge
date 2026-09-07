@@ -298,7 +298,7 @@ class ProjectDetector:
                     readme_content = "Failed to read README content"
                 break
 
-        return ProjectArtifact(
+        artifact = ProjectArtifact(
             root_path=root_path,
             source_type="git_clone",
             repository_url=repository_url,

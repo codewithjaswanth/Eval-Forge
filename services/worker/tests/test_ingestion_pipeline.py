@@ -165,5 +165,20 @@ class TestIngestionPipeline(unittest.TestCase):
         self.assertEqual(failed_run["status"], "failed")
         self.assertIn("error", failed_run["error_information"])
 
+    def test_shared_context_populated_after_ingestion(self):
+        """Regression test: verify artifact.shared_context is properly constructed and attached."""
+        from analyzer.ingestion.detector import ProjectDetector
+        detector = ProjectDetector()
+        artifact = detector.detect_project(
+            root_path=self.repo_path,
+            repository_url="https://github.com/test-org/sample-app",
+            commit_sha="abcdef123456",
+            branch="main"
+        )
+        self.assertIsNotNone(artifact.shared_context, "artifact.shared_context must not be None after ingestion")
+        self.assertEqual(artifact.shared_context.repository_url, "https://github.com/test-org/sample-app")
+        self.assertEqual(artifact.shared_context.commit_sha, "abcdef123456")
+        self.assertIn("next", artifact.shared_context.dependencies)
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@ import subprocess
 import logging
 import tempfile
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Dict
 
 logger = logging.getLogger("evalforge.git")
 

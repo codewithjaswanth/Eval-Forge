@@ -3,7 +3,7 @@ import re
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 logger = logging.getLogger("evalforge.tests_runner")
 
