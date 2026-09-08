@@ -8,9 +8,10 @@ import { randomUUID } from "crypto";
 export async function POST(req: NextRequest) {
   try {
     // 0. Extract client IP and enforce sliding window rate limiting
-    const forwardedFor = req.headers.get("x-forwarded-for");
-    const realIp = req.headers.get("x-real-ip");
-    const clientIp = forwardedFor ? forwardedFor.split(",")[0].trim() : (realIp || "127.0.0.1");
+    const rawIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+                  req.headers.get("x-real-ip") ||
+                  "127.0.0.1";
+    const clientIp = rawIp.replace(/[^a-fA-F0-9.:]/g, "").slice(0, 45) || "127.0.0.1";
 
     const rateCheck = globalSubmissionLimiter.check(clientIp);
     if (!rateCheck.allowed) {

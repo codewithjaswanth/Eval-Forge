@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from typing import Tuple, Dict
 
+from ..browser.url_validator import validate_safe_url
+
 logger = logging.getLogger("evalforge.git")
 
 class GitIngestionError(Exception):
@@ -61,9 +63,14 @@ class GitClient:
                 return (self._get_head_commit_sha(target_dir), self._get_current_branch(target_dir))
             return ("fixture-commit-sha-0000000000000000", "main")
 
-        # 3. Only allow http/https schemes for external repositories
+        # 3. Only allow http/https schemes for external repositories and enforce SSRF defense
         if not clean_url.startswith("https://") and not clean_url.startswith("http://"):
             raise GitSecurityException(f"Disallowed repository protocol in '{repo_url}'. Only HTTPS is permitted.")
+
+        allow_local_test = os.getenv("EVALFORGE_ALLOW_LOCAL_TEST_SITES", "").lower() in ("true", "1")
+        is_safe, reason = validate_safe_url(clean_url, allow_localhost_for_testing=allow_local_test)
+        if not is_safe:
+            raise GitSecurityException(f"SSRF violation: Repository URL '{clean_url}' is blocked: {reason}")
 
         # 4. Run shallow clone with strict timeouts, zero credentials in env, and disabled dangerous protocols
         null_hook = "NUL" if os.name == "nt" else "/dev/null"

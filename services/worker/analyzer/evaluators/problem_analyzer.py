@@ -7,7 +7,8 @@ from ..rubrics import (
     calculate_problem_score,
     PROBLEM_DIMENSION_WEIGHTS
 )
-from ..llm import ContextPacker, BaseLLMClient, get_llm_client, LLMMalformedResponseError
+from ..llm.context_packer import ContextPacker
+from ..llm.client import BaseLLMClient, get_llm_client, LLMMalformedResponseError
 
 logger = logging.getLogger("evalforge.evaluators.problem_analyzer")
 

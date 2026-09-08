@@ -95,6 +95,11 @@ GEMINI_API_KEY=<gemini-api-key>
 # Research / Novelty Discovery
 SEARCH_API_KEY=<search-engine-key>
 
+# Dependency Installation Policy (Testing & Execution)
+# By default false: prevents arbitrary untrusted package installations.
+# Only when true and a valid lockfile is committed may dependencies be installed inside the isolated sandbox.
+EVAL_ALLOW_DEPENDENCY_INSTALL=false
+
 # Logging
 LOG_LEVEL=INFO
 STRUCTURED_JSON_LOGGING=true

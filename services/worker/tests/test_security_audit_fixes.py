@@ -287,3 +287,66 @@ class TestSandboxBoundary:
             assert result.timed_out is True
             assert result.exit_code == -1
             assert "timed out" in (result.error_message or "").lower()
+
+    def test_git_client_blocks_ssrf_urls(self):
+        """Git clone must reject internal, cloud metadata, and loopback repository URLs."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "repo"
+            for unsafe in [
+                "http://169.254.169.254/computeMetadata/v1",
+                "http://127.0.0.1:8080/repo.git",
+                "http://10.0.0.5/private.git",
+                "http://192.168.1.1/router.git"
+            ]:
+                with pytest.raises(GitSecurityException, match=r"SSRF violation"):
+                    clone_repository(unsafe, target)
+
+    @pytest.mark.asyncio
+    async def test_js_test_execution_blocks_host_rce_without_container(self):
+        """Untrusted package.json test scripts must not be executed on host without container isolation."""
+        import json
+        from analyzer.code_quality.tests_runner import _execute_js_tests
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = Path(tmp_dir)
+            pkg = ws / "package.json"
+            pkg.write_text(json.dumps({
+                "name": "untrusted-repo",
+                "scripts": {
+                    "test": "echo PWNED_HOST"
+                }
+            }), encoding="utf-8")
+
+            # Ensure host test execution is not explicitly opted into
+            with patch.dict(os.environ, {"EVALFORGE_ALLOW_HOST_TEST_EXECUTION": "false"}):
+                # Ensure container runtime is mocked as unavailable
+                with patch("analyzer.sandbox.IsolatedSandboxRunner._detect_container_runtime", return_value=None):
+                    result = await _execute_js_tests(ws, ["test.js"])
+                    assert result is None, "Host execution of untrusted scripts must return None and fall back to static counting"
+
+    def test_gemini_client_transmits_api_key_in_header_not_query(self):
+        """Gemini client must pass API key in x-goog-api-key header instead of URL query param."""
+        from unittest.mock import patch, MagicMock
+        from pydantic import BaseModel
+        from analyzer.llm.client import GeminiLLMClient
+
+        class DummySchema(BaseModel):
+            result: str
+
+        client = GeminiLLMClient(api_key="sk-test-secret-key-12345", model_name="gemini-2.5-flash")
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_res = MagicMock()
+            mock_res.read.return_value = b'{"candidates": [{"content": {"parts": [{"text": "{\\"result\\": \\"ok\\"}"}]}}]}'
+            mock_res.__enter__.return_value = mock_res
+            mock_urlopen.return_value = mock_res
+
+            client._call_gemini_structured("Test prompt", DummySchema, max_retries=0)
+
+            assert mock_urlopen.called
+            req = mock_urlopen.call_args[0][0]
+            # Verify URL does NOT have ?key=
+            assert "?key=" not in req.full_url
+            assert "sk-test-secret-key-12345" not in req.full_url
+            # Verify header is set
+            assert req.headers.get("X-goog-api-key") == "sk-test-secret-key-12345"

@@ -250,35 +250,51 @@ class CodeQualityAnalyzer(BaseEvaluator):
         # ----------------------------------------------------------------------
         # 5. Testing Discovery & Hygiene
         # ----------------------------------------------------------------------
-        test_res = analyze_tests(
+        test_res = await analyze_tests(
             root_path=artifact.root_path,
             test_files=artifact.test_files,
             detected_languages=artifact.detected_languages,
-            detected_frameworks=artifact.detected_frameworks
+            detected_frameworks=artifact.detected_frameworks,
+            timeout_seconds=min(30.0, self.timeout_seconds)
         )
 
         test_pts = 0.0
         if test_res.measurable:
-            measurable_dimensions += 1
+            is_executed = test_res.execution_mode == "executed"
+            # Real test execution contributes full 1.0 confidence; static count fallback contributes 0.6
+            measurable_dimensions += (1.0 if is_executed else 0.6)
             if test_res.test_count > 0:
                 test_pts = max(0.0, min(1.5, 1.5 - (test_res.test_failures * 0.5)))
-                strengths.append(f"Automated test suite detected ({test_res.test_count} test cases in {test_res.framework or 'framework'}).")
+                if is_executed:
+                    strengths.append(f"Automated tests executed in sandbox ({test_res.test_count} total, {test_res.test_count - test_res.test_failures} passed via {test_res.framework}).")
+                else:
+                    strengths.append(f"Automated test suite detected ({test_res.test_count} test cases in {test_res.framework or 'framework'}).")
             else:
                 weaknesses.append("No automated test cases discovered in repository.")
                 recommendations.append("Implement automated unit and integration tests.")
 
+            if is_executed:
+                count_interp = f"Executed {test_res.test_count} test cases ({test_res.test_count - test_res.test_failures} passed, {test_res.test_failures} failed) via {test_res.framework}."
+                fail_interp = f"Recorded {test_res.test_failures} test execution failure(s) in sandbox."
+            else:
+                count_interp = (
+                    f"Discovered {test_res.test_count} test cases across {test_res.test_files_count} test files via static inspection "
+                    f"(execution fallback: tests were not executed; this static-count gap mitigates the 'submit 50 tests that parse but never run' exploit)."
+                )
+                fail_interp = f"Identified {test_res.test_failures} test file syntax/collection failure(s) (static count fallback; tests were not executed)."
+
             evidence.append(EvidenceItem(
-                source="test_discovery",
+                source="test_runner" if is_executed else "test_discovery",
                 metric="test_count",
                 value=test_res.test_count,
-                interpretation=f"Discovered {test_res.test_count} test cases across {test_res.test_files_count} test files.",
+                interpretation=count_interp,
                 raw_data=test_res.details
             ))
             evidence.append(EvidenceItem(
-                source="test_discovery",
+                source="test_runner" if is_executed else "test_discovery",
                 metric="test_failures",
                 value=test_res.test_failures,
-                interpretation=f"Identified {test_res.test_failures} test file syntax/collection failures."
+                interpretation=fail_interp
             ))
         else:
             evidence.append(EvidenceItem(

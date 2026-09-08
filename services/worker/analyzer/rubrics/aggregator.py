@@ -1,11 +1,13 @@
+from __future__ import annotations
 import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 
-from ..evaluators.base import EvaluationResult
+if TYPE_CHECKING:
+    from ..evaluators.base import EvaluationResult
 
 logger = logging.getLogger("evalforge.aggregator")
 

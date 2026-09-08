@@ -21,8 +21,23 @@ export class RateLimiter {
     const now = Date.now();
     const windowStart = now - this.windowMs;
 
+    // Periodic cleanup: if map grows large, purge expired records
+    if (this.requests.size > 1000) {
+      for (const [key, rec] of this.requests.entries()) {
+        rec.timestamps = rec.timestamps.filter((ts) => ts > windowStart);
+        if (rec.timestamps.length === 0) {
+          this.requests.delete(key);
+        }
+      }
+    }
+
     let record = this.requests.get(identifier);
     if (!record) {
+      // Hard cap to avoid memory exhaustion under distributed spoofing attacks
+      if (this.requests.size >= 10000) {
+        const oldestKey = this.requests.keys().next().value;
+        if (oldestKey) this.requests.delete(oldestKey);
+      }
       record = { timestamps: [] };
       this.requests.set(identifier, record);
     }

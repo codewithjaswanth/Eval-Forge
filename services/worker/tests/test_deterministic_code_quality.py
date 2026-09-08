@@ -106,7 +106,7 @@ describe('add tests', () => {
 
         self.assertTrue(analyzer.validate(result))
         self.assertEqual(result.criterion, "code_quality")
-        self.assertEqual(result.confidence, 0.92)  # 4 dimensions measured real, linter fallback to heuristic (ESLint unavailable)
+        self.assertEqual(result.confidence, 0.84)  # 3 dimensions measured real, 2 fallbacks (eslint and jest unavailable)
 
         # Check evidence metrics
         metrics = {e.metric: e.value for e in result.evidence}

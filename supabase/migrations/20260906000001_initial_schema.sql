@@ -336,14 +336,53 @@ CREATE POLICY "public_read_scoring_rubrics" ON scoring_rubrics FOR SELECT TO ano
 CREATE POLICY "public_read_rubric_categories" ON rubric_categories FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY "public_read_projects" ON projects FOR SELECT TO anon, authenticated USING (is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = user_id));
 CREATE POLICY "public_read_submissions" ON submissions FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM projects WHERE projects.id = submissions.project_id AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))));
-CREATE POLICY "public_read_evaluation_runs" ON evaluation_runs FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "public_read_evaluation_modules" ON evaluation_modules FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "public_read_criterion_scores" ON criterion_scores FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "public_read_evidence" ON evidence FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "public_read_research_results" ON research_results FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "public_read_reports" ON reports FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "public_read_evaluation_runs" ON evaluation_runs FOR SELECT TO anon, authenticated 
+  USING (EXISTS (
+    SELECT 1 FROM submissions 
+    JOIN projects ON projects.id = submissions.project_id 
+    WHERE submissions.id = evaluation_runs.submission_id 
+    AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))
+  ));
+CREATE POLICY "public_read_evaluation_modules" ON evaluation_modules FOR SELECT TO anon, authenticated 
+  USING (EXISTS (
+    SELECT 1 FROM evaluation_runs 
+    JOIN submissions ON submissions.id = evaluation_runs.submission_id 
+    JOIN projects ON projects.id = submissions.project_id 
+    WHERE evaluation_runs.id = evaluation_modules.run_id 
+    AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))
+  ));
+CREATE POLICY "public_read_criterion_scores" ON criterion_scores FOR SELECT TO anon, authenticated 
+  USING (EXISTS (
+    SELECT 1 FROM evaluation_runs 
+    JOIN submissions ON submissions.id = evaluation_runs.submission_id 
+    JOIN projects ON projects.id = submissions.project_id 
+    WHERE evaluation_runs.id = criterion_scores.run_id 
+    AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))
+  ));
+CREATE POLICY "public_read_evidence" ON evidence FOR SELECT TO anon, authenticated 
+  USING (EXISTS (
+    SELECT 1 FROM evaluation_runs 
+    JOIN submissions ON submissions.id = evaluation_runs.submission_id 
+    JOIN projects ON projects.id = submissions.project_id 
+    WHERE evaluation_runs.id = evidence.run_id 
+    AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))
+  ));
+CREATE POLICY "public_read_research_results" ON research_results FOR SELECT TO anon, authenticated 
+  USING (EXISTS (
+    SELECT 1 FROM projects 
+    WHERE projects.id = research_results.project_id 
+    AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))
+  ));
+CREATE POLICY "public_read_reports" ON reports FOR SELECT TO anon, authenticated 
+  USING (EXISTS (
+    SELECT 1 FROM evaluation_runs 
+    JOIN submissions ON submissions.id = evaluation_runs.submission_id 
+    JOIN projects ON projects.id = submissions.project_id 
+    WHERE evaluation_runs.id = reports.run_id 
+    AND (projects.is_public = true OR (auth.uid() IS NOT NULL AND auth.uid() = projects.user_id))
+  ));
 
 -- 8.3 SUBMISSION CREATION POLICIES
 CREATE POLICY "create_projects_policy" ON projects FOR INSERT TO anon, authenticated WITH CHECK (true);
 CREATE POLICY "create_submissions_policy" ON submissions FOR INSERT TO anon, authenticated WITH CHECK (true);
-CREATE POLICY "create_evaluation_runs_policy" ON evaluation_runs FOR INSERT TO anon, authenticated WITH CHECK (true);
+-- Evaluation runs can only be queued and managed by authenticated service_role workers/backend

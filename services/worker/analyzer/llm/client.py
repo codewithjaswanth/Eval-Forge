@@ -219,7 +219,7 @@ class GeminiLLMClient(BaseLLMClient):
         import urllib.request
         import urllib.error
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent"
 
         schema_json = json.dumps(schema_class.model_json_schema())
         full_prompt = f"{prompt}\n\nYou MUST format your output strictly as a JSON object adhering to this JSON Schema:\n{schema_json}"
@@ -240,7 +240,10 @@ class GeminiLLMClient(BaseLLMClient):
                 req = urllib.request.Request(
                     url,
                     data=data,
-                    headers={"Content-Type": "application/json"}
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self.api_key
+                    }
                 )
                 with urllib.request.urlopen(req, timeout=30) as response:
                     res_body = json.loads(response.read().decode("utf-8"))
